@@ -2,14 +2,7 @@
  * Created by Domen Jurkovic 30.11.2015
  *
  * initialise with:
- HX711_pin_typedef		HX711_pin_structure;
- HX711_data_typedef	HX711_data_structure;
- 
- HX711_pin_structure.dout_pin		=	23;
- HX711_pin_structure.pd_sck_pin	=	24;
- HX711_pin_structure.rate_pin		= 25;
- 
- HX711_init(&HX711_pin_structure, &HX711_data_structure);
+ * Check example project.
  */
  
 #include <stdio.h> 
@@ -19,7 +12,6 @@
 #include "nrf_hx711.h"
 
 // define clock and data pin, channel, and gain factor
-// channel selection is made by passing the appropriate gain: 128 or 64 for channel A, 32 for ch. B
 void HX711_init(HX711_pin_typedef *hx711_pin_struct){
 	nrf_gpio_cfg_output(hx711_pin_struct->pd_sck_pin);	// power down / serial clock
 	nrf_gpio_cfg_output(hx711_pin_struct->rate_pin);		// rate
