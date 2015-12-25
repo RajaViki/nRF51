@@ -19,10 +19,8 @@
 #include "nrf_hx711.h"
 
 // define clock and data pin, channel, and gain factor
-// channel selection is made by passing the appropriate gain: 128 or 64 for channel A
-// gain: 128 or 64 for channel A; 
-	//void HX711_init(uint32_t pd_sck_pin, uint32_t dout_pin, uint32_t gain_pin){
-void HX711_init(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *hx711_data_struct){
+// channel selection is made by passing the appropriate gain: 128 or 64 for channel A, 32 for ch. B
+void HX711_init(HX711_pin_typedef *hx711_pin_struct){
 	nrf_gpio_cfg_output(hx711_pin_struct->pd_sck_pin);	// power down / serial clock
 	nrf_gpio_cfg_output(hx711_pin_struct->rate_pin);		// rate
 	
@@ -30,13 +28,7 @@ void HX711_init(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *hx711_d
 	
 	nrf_gpio_pin_clear(hx711_pin_struct->pd_sck_pin);	// normal mode, power on
 	nrf_gpio_pin_clear(hx711_pin_struct->rate_pin);	// HX_RATE_10
-	
-	hx711_data_struct->av_rate = 1;
-	hx711_data_struct->gain = HX_GAIN_128;
-	hx711_data_struct->rate = HX_RATE_10;
-	hx711_data_struct->offset = 0;
-	hx711_data_struct->result = 0;
-	
+		
 	// initialise HX and databus
 	HX711_power_down(hx711_pin_struct);	
 	HX711_power_up(hx711_pin_struct);
@@ -46,26 +38,34 @@ void HX711_init(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *hx711_d
 // from the datasheet: When output data is not ready for retrieval, digital output pin DOUT is high. Serial clock
 // input PD_SCK should be low. When DOUT goes to low, it indicates data is ready for retrieval.
 uint8_t HX711_is_ready(HX711_pin_typedef *hx711_pin_struct){
-	return nrf_gpio_pin_read(hx711_pin_struct->dout_pin);
+	if(nrf_gpio_pin_read(hx711_pin_struct->dout_pin) == 0){
+		return HX_STAT_READY;
+	}
+	else{
+		return HX_STAT_BUSY;
+	}
 }
 
-// HX must be ready - check before with HX711_is_ready() 
 // sets gain and start new measurement, while read previous result 
 int32_t HX711_measure(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *hx711_data_struct){
 	uint8_t num_of_pulses=0;
 	int32_t result = 0;
 	int32_t temp_result = 0;
 	uint8_t i, j = 0;
+	uint8_t bit_shift = 0;
 	
 	switch (hx711_data_struct->gain) {
 		case HX_GAIN_128:		// channel A, gain factor 128
 			num_of_pulses = 25;
+			bit_shift = HX_SHIFT_BITS_CHA;
 			break;
 		case HX_GAIN_64:		// channel A, gain factor 64
 			num_of_pulses = 27;
+			bit_shift = HX_SHIFT_BITS_CHB;
 			break;
 		case HX_GAIN_32:		// channel B, fixed gain factor 32
 			num_of_pulses = 26;
+			bit_shift = HX_SHIFT_BITS_CHA;
 			break;
 	}
 	
@@ -87,9 +87,11 @@ int32_t HX711_measure(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *h
 	
 	// make av_rate measurements
 	for(i = 0; i < hx711_data_struct->av_rate; i++){
+		
 		// wait while HX is not ready. 
 		while (HX711_is_ready(hx711_pin_struct) == HX_STAT_BUSY){
 		}
+			
 		
 		for (j = 0; j < num_of_pulses; j++) {
 			nrf_gpio_pin_set(hx711_pin_struct->pd_sck_pin);		
@@ -114,7 +116,9 @@ int32_t HX711_measure(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *h
 		//OR
 		//temp_result ^= 0x00800000;
 		//temp_result -= 8388608;
-			
+		
+		temp_result = temp_result >> bit_shift;		
+		
 		result += (temp_result - hx711_data_struct->offset);	// add temporary result to result, substract offset value. 
 		temp_result = 0;	// clear temporary result
 	}
@@ -123,13 +127,15 @@ int32_t HX711_measure(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *h
 	return result;
 }
 
-// measure with high average (50) at 10SPS = 5 seconds and write offset in corresponding structure
+// measure with high average (HX_OFFSET_AV_RATE) at 10SPS = 5 seconds for (HX_OFFSET_AV_RATE = 50) and write offset in corresponding structure
 void HX711_eliminate_offset(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *hx711_data_struct){
 	uint8_t av_rate = hx711_data_struct->av_rate;
 	uint8_t sps = hx711_data_struct->rate;
 	
+	hx711_data_struct->result = 0;
+	hx711_data_struct->offset = 0;
 	hx711_data_struct->rate = HX_RATE_10;
-	hx711_data_struct->av_rate = 50;
+	hx711_data_struct->av_rate = HX_OFFSET_AV_RATE;
 	
 	hx711_data_struct->offset = HX711_measure(hx711_pin_struct, hx711_data_struct);
 	
