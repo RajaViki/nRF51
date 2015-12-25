@@ -1,73 +1,80 @@
-/*
-	Example for simple_uart and nrf_hx711 library.
-	Created by Domen Jurkovic, 30.11.2015
-*/
+// Created by Domen Jurkovic, 25.12.2015
+// HX711 driver and simple UART driver test. 
+// Enable #define UART0_ENABLED	1 in nrf_drv_config.h
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 
-#include "nrf_delay.h"
-#include "nrf_gpio.h"
-
-#include "nrf_hx711.h"
 #include "simple_uart.h"
-
-#define LED 22 
-#define RX_PIN_NUMBER 17	// UART RX pin number.
-#define TX_PIN_NUMBER 18	// UART TX pin number.
-#define CTS_PIN_NUMBER 20	// UART Clear To Send pin number. Not used if HWFC is set to false. 
-#define RTS_PIN_NUMBER 19	// UART Request To Send pin number. Not used if HWFC is set to false. 
-#define HWFC	false				// UART hardware flow control.
-
-HX711_pin_typedef		HX711_pin_structure;
-HX711_data_typedef	HX711_data_structure;
+#include "nrf_hx711.h"
 
 
-void system_setup(){
-	nrf_gpio_cfg_output(LED);	//led setup on pin 22
-}
+// USER MUST DEFINE PINS
+#define RX_PIN_NUMBER 18	// UART RX pin number.
+#define TX_PIN_NUMBER 17	// UART TX pin number.
+
+HX711_pin_typedef	HX711_pin_structure;
+HX711_data_typedef	HX711_data_structure_chA;
+HX711_data_typedef	HX711_data_structure_chB;
 
 void HX711_setup(void){
-	HX711_pin_structure.dout_pin		=	23;
-	HX711_pin_structure.pd_sck_pin	=	24;
-	HX711_pin_structure.rate_pin		= 25;
+	HX711_pin_structure.dout_pin	=	9;
+	HX711_pin_structure.pd_sck_pin	=	10;
+	HX711_pin_structure.rate_pin	=	8;
+		
+	HX711_init(&HX711_pin_structure);	// init pins
 	
-	HX711_init(&HX711_pin_structure, &HX711_data_structure);
+	//channel A
+	HX711_data_structure_chA.av_rate = 10;
+	HX711_data_structure_chA.gain = HX_GAIN_128; 
+	HX711_data_structure_chA.rate = HX_RATE_10;
+	HX711_data_structure_chA.offset = 0;
+	HX711_data_structure_chA.result = 0;
+	
+	//channel B
+	HX711_data_structure_chB.av_rate = 10;
+	HX711_data_structure_chB.gain = HX_GAIN_32; 
+	HX711_data_structure_chB.rate = HX_RATE_10;
+	HX711_data_structure_chB.offset = 0;
+	HX711_data_structure_chB.result = 0;
+
+	// dummy measurements
+	while(HX711_is_ready(&HX711_pin_structure) != HX_STAT_READY){
+	}
+	HX711_measure(&HX711_pin_structure, &HX711_data_structure_chA);
+	while(HX711_is_ready(&HX711_pin_structure) != HX_STAT_READY){
+	}
+	HX711_measure(&HX711_pin_structure, &HX711_data_structure_chB);
+	
+	HX711_data_structure_chA.result = 0;
+	HX711_data_structure_chB.result = 0;
 }
 
-int main(void){
-	system_setup();
-		
+
+int main(void)
+{
 	// UART
-	simple_uart_config(RTS_PIN_NUMBER, TX_PIN_NUMBER, CTS_PIN_NUMBER, RX_PIN_NUMBER, HWFC);
+	printNumberLn(uart_init(RX_PIN_NUMBER, TX_PIN_NUMBER, UART_BAUDRATE_BAUDRATE_Baud19200), DEC);
 	printStringLn("-----------------------------------------------");
 	
-	HX711_power_down(&HX711_pin_structure);
-	HX711_power_up(&HX711_pin_structure);
 	HX711_setup();
+		
+	HX711_eliminate_offset(&HX711_pin_structure, &HX711_data_structure_chA);
+	printStringLn("CH A offset eliminated.");
 	
-	if(HX711_is_ready(&HX711_pin_structure)){
-		HX711_eliminate_offset(&HX711_pin_structure, &HX711_data_structure);
-	}
-	else{
-		printStringLn("HX is not ready yet");
-	}
+	HX711_eliminate_offset(&HX711_pin_structure, &HX711_data_structure_chB);
+	printStringLn("CH B offset eliminated.");
 	
-	while (true)
-	{
-			printStringLn("---");
-			/*nrf_gpio_pin_set(LED);
-			nrf_delay_ms(500);
-			nrf_gpio_pin_clear(LED);
-			nrf_delay_ms(500);*/
-			
-		if(HX711_is_ready(&HX711_pin_structure)){
-			printNumberLn(HX711_measure(&HX711_pin_structure, &HX711_data_structure), DEC);
-		}
-		else{
-			printStringLn("HX is not ready yet");
-		}	
+	printStringLn("System initialised");
+	
+	while (true){
+		
+		HX711_power_up(&HX711_pin_structure);
+		printNumberLn(HX711_measure(&HX711_pin_structure, &HX711_data_structure_chA), DEC);
+		printNumberLn(HX711_measure(&HX711_pin_structure, &HX711_data_structure_chB), DEC);
+		HX711_power_down(&HX711_pin_structure);
+		printLn();
+		nrf_delay_ms(100);
 	}
 }
-
