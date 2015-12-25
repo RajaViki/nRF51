@@ -1,6 +1,7 @@
-// Created by Domen Jurkovic, 25.12.2015
-// HX711 driver and simple UART driver test. 
-// Enable #define UART0_ENABLED	1 in nrf_drv_config.h
+/*
+ *	Created by: Domen Jurkovic, 25.12.2015
+ *	Example project for HX711 and simple_uart
+*/
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,14 +15,14 @@
 #define RX_PIN_NUMBER 18	// UART RX pin number.
 #define TX_PIN_NUMBER 17	// UART TX pin number.
 
-HX711_pin_typedef	HX711_pin_structure;
+HX711_pin_typedef		HX711_pin_structure;
 HX711_data_typedef	HX711_data_structure_chA;
 HX711_data_typedef	HX711_data_structure_chB;
 
 void HX711_setup(void){
-	HX711_pin_structure.dout_pin	=	9;
+	HX711_pin_structure.dout_pin		=	9;
 	HX711_pin_structure.pd_sck_pin	=	10;
-	HX711_pin_structure.rate_pin	=	8;
+	HX711_pin_structure.rate_pin		= 8;
 		
 	HX711_init(&HX711_pin_structure);	// init pins
 	
@@ -63,8 +64,11 @@ int main(void)
 	HX711_eliminate_offset(&HX711_pin_structure, &HX711_data_structure_chA);
 	printStringLn("CH A offset eliminated.");
 	
+	/*
+	//za merjenje baterije, popravi HX_SHIFT_BITS_CHB v nrf_hx711.h
 	HX711_eliminate_offset(&HX711_pin_structure, &HX711_data_structure_chB);
 	printStringLn("CH B offset eliminated.");
+	*/
 	
 	printStringLn("System initialised");
 	
@@ -76,5 +80,9 @@ int main(void)
 		HX711_power_down(&HX711_pin_structure);
 		printLn();
 		nrf_delay_ms(100);
+		
+		if(uart_receive_byte() == 'x'){
+			printStringLn("x!");
+		}
 	}
 }
