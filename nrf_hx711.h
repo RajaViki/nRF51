@@ -1,5 +1,5 @@
 /* HX711 library
- * Created by Domen Jurkovic 30.11.2015
+ * Created by Domen Jurkovic 25.12.2015
  *
 */
 
@@ -11,9 +11,15 @@
 #include "nrf_gpio.h"
 #include "nrf_delay.h"
 
+// USER CAN CHANGE:
+#define HX_OFFSET_AV_RATE	50
+#define HX_SHIFT_BITS_CHA	7
+#define HX_SHIFT_BITS_CHB	0
+
+// defines
 #define HX_GAIN_32	32		//Channel B
 #define HX_GAIN_64	64		//Channel A
-#define HX_GAIN_128 128	//Channel A
+#define HX_GAIN_128 128		//Channel A
 
 #define HX_RATE_10 0
 #define HX_RATE_80 1
@@ -35,7 +41,7 @@ typedef struct{
 	int32_t offset;
 }HX711_data_typedef;
 
-void HX711_init(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *hx711_data_struct);
+void HX711_init(HX711_pin_typedef *hx711_pin_struct);
 
 uint8_t HX711_is_ready(HX711_pin_typedef *hx711_pin_struct);	
 int32_t HX711_measure(HX711_pin_typedef *hx711_pin_struct, HX711_data_typedef *hx711_data_struct);
