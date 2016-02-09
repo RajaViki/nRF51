@@ -4,8 +4,8 @@
  * 
  */
 
-#ifndef SIMPLE_UART_H
-#define SIMPLE_UART_H
+#ifndef NRF51_UART_PRINT_H
+#define NRF51_UART_PRINT_H
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -14,6 +14,7 @@
 #include "nrf.h"
 #include "app_uart.h"
 #include "app_error.h"
+#include "app_fifo.h"
 
 //uint8_t base:
 #define	DEC	10
@@ -25,8 +26,8 @@
 /* UART INIT FUNCTIONS - change in .c file accordingly to your HW */
 /****************************************************************************************/
 // initialize UART
-uint32_t uart_init(uint8_t rx_pin, uint8_t tx_pin, uint32_t baud_rate);
-void uart_error_handler(app_uart_evt_t * p_event);
+uint32_t UART_Init(uint8_t rx_pin, uint8_t tx_pin, uint32_t baud_rate);
+void uart_error_handle(app_uart_evt_t * p_event);
 
 uint32_t uart_send_byte(uint8_t byte);
 uint8_t uart_receive_byte(void);
@@ -53,9 +54,5 @@ void printUnsignedNumber(uint32_t n, uint8_t base);	//send/print UNSIGNED uint32
 void printFloat(float number);
 void printFloatLn(float number);
 
-/**
- *@}
- **/
-
-/*lint --flb "Leave library region" */
 #endif
+

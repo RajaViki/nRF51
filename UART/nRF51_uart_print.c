@@ -1,43 +1,56 @@
 /*
- *	Created by: Domen Jurkovic, 25.12.2015
+ *	Created by: Domen Jurkovic, 8-Feb-2016
  *	Arduino like functions for serial printing of numbers and strings
  
  *	For other platforms (STM, Freescale, ...) edit only:
-		- uart_init()
-		- uart_error_handler()
+		- UART_Init()
+		- uart_error_handle()
 		- uart_send_byte()
 		- uart_receive_byte()
 			- include appropriate headers for UART
 
 */
 
-#include "simple_uart.h"
+#include "nRF51_uart_print.h"
 
 /****************************************************************************************/
 /* UART INIT FUNCTIONS - change accordingly to your HW */
 /****************************************************************************************/
-uint32_t uart_init(uint8_t rx_pin, uint8_t tx_pin, uint32_t baud_rate){
+uint32_t UART_Init(uint8_t rx_pin, uint8_t tx_pin, uint32_t baud_rate){
 	uint32_t err_code = 0;
 	const app_uart_comm_params_t comm_params = {rx_pin, tx_pin, 0, 0, APP_UART_FLOW_CONTROL_DISABLED, false, baud_rate};
 	
-	//APP_UART_INIT(&comm_params, NULL, APP_IRQ_PRIORITY_LOW, err_code);
-	APP_UART_INIT(&comm_params, uart_error_handler, APP_IRQ_PRIORITY_LOW, err_code);
+	//APP_UART_INIT(&comm_params, uart_error_handle, APP_IRQ_PRIORITY_LOW, err_code);
 	
+	APP_UART_FIFO_INIT(&comm_params,
+                         1,		//UART_RX_BUF_SIZE
+                         256,	//UART_TX_BUF_SIZE
+                         uart_error_handle,
+                         APP_IRQ_PRIORITY_LOW,
+                         err_code);
+
 	return err_code;
 }
 
-void uart_error_handler(app_uart_evt_t * p_event)
+void uart_error_handle(app_uart_evt_t * p_event)
 {
-	return;
+    if (p_event->evt_type == APP_UART_COMMUNICATION_ERROR)
+    {
+        APP_ERROR_HANDLER(p_event->data.error_communication);
+    }
+    else if (p_event->evt_type == APP_UART_FIFO_ERROR)
+    {
+        APP_ERROR_HANDLER(p_event->data.error_code);
+    }
 }
 
 uint32_t uart_send_byte(uint8_t byte){
 	while(app_uart_put(byte) != NRF_SUCCESS);
 	
-	return 0; // app_uart_put(byte);
+	return 0; 
 }
 
-
+// currently only single receive character is implemented
 uint8_t uart_receive_byte(void){
 	uint8_t byte;
 	app_uart_get(&byte);
@@ -64,7 +77,6 @@ void printString(char *data){
 		uart_send_byte(data[i]);
 	}
 }
-
 
 /*
 	Send/print unsigned or signed number over UART. 
