@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "FDC1004.h"
+#include "nrf_fdc1004.h"
 
 // edit nrf_drv_config.h to enable TIMER0
 // set up pins in twi_master.h

@@ -9,6 +9,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "nrf_delay.h"
 #include "nRF51_uart_print.h"
 
 

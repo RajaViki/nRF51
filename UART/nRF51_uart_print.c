@@ -181,28 +181,16 @@ void printUnsignedNumber(uint32_t n, uint8_t base){
 	printString(str); 
 }
 
-void printFloat(float number){
-	int32_t integer_part = (int32_t) number;
-	float decimal_part =  (number - (float)integer_part) * 10000;
-	
-	if((integer_part == 0) && (decimal_part < 0)){
-		printString("-");
-	}
-	printNumber(integer_part, DEC);
-	printString(".");
-	
-	if(decimal_part < 0){
-		decimal_part = - decimal_part;
-	}
-	if(decimal_part < 1000){
-			if(decimal_part < 100)	printNumber(0, DEC);
-			if(decimal_part < 10)	printNumber(0, DEC);
-			printNumber(0, DEC);
-	}
-	printNumber((uint32_t)decimal_part, DEC);
+// pay attention on "double" type range
+// ? - max 6 digits after decimal point?
+void printFloat(double number){
+	char float_as_string[20];
+	sprintf(float_as_string, "%f", number);
+  printString(float_as_string);
 }
 
-void printFloatLn(float number){
+void printFloatLn(double number){
 	printFloat(number);
 	printLn();
 }
+

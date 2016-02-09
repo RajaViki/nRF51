@@ -10,7 +10,7 @@
 #include "twi_master.h"
 #include "twi_master_config.h"
 
-#include "FDC1004.h"
+#include "nrf_fdc1004.h"
 #include "communication.h"
 
  
