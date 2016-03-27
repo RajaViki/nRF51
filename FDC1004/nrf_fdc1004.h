@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
 #include "nrf.h"
 #include "twi_master.h"
@@ -21,7 +22,8 @@
 /*****************************************************************************
 * change according to sensor and data
 *****************************************************************************/
-#define PRINTOUT
+//#define PRINT_INFO	// print data directly from functions like init, capdac and offset elimination
+//#define DEBUG_PRINT	//print error number (example): !2! (= i2c write to fdc error)
 
 #define PULL_VS_PUSH_FORCE	3
 // X*10; (if x=3, pull force represent 30% of FDC range, pull force 70%
@@ -89,19 +91,85 @@
 #define MANUFACTURER_ID	0xFE	// ID of Texas Instruments
 #define DEVICE_ID				0xFF	// ID of FDC1004 device
 
-// errors
-#define FDC1004_SUCCESS 0			// everything is OK
-#define FDC1004_I2C_E		1			// FDC I2C communication error
-#define FDC1004_DATA_E	2			// FDC I2C timeout error - measurement didn't complete in MEAS_TIMEOUT
-#define FDC1004_SETUP_E	4			// FDC setup error
+// status
+#define FDC_OK					0			// everything is OK
 
-#define MEAS_TIMEOUT		50		// [ms] Measurement must complete (DONEX set) in this time
+// timeout values
+#define MEAS_TIMEOUT_100SPS		40	//	[ms] Measurement must complete (DONEX set) in this time
+#define MEAS_TIMEOUT_200SPS		20	//	[ms] Measurement must complete (DONEX set) in this time
+#define MEAS_TIMEOUT_400SPS		10	//	[ms] Measurement must complete (DONEX set) in this time
+
+/* ERROR CODE
+0 - OK
+1 - read
+2 - write
+3 - timer interrupt (measurement timeout)
+
+* FDC1004_init()
+10 - software reset
+11 - cap pins and initial state: CONF_MEAS1
+12 - cap pins and initial state: CONF_MEAS2
+13 - cap pins and initial state: CONF_MEAS3
+14 - cap pins and initial state: CONF_MEAS4
+
+* FCD1004_measure()
+19 - wrong passed sample rate
+20 - write op: start measurement.
+21 - read op: wait for measurement completion
+22 - measurement timeout
+23 - read op: results for channel 1
+24 - read op: results for channel 2
+25 - read op: results for channel 3
+26 - read op: results for channel 4
+27 - write op: stop repeated measurement
+
+* FCD1004_start_repeated_measurement()
+30 - wrong passed sample rate
+31 - write op: start repeated measurement of all capacitors
+
+* FCD1004_stop_repeated_measurement()
+35 - wrong passed sample rate
+
+* FCD1004_get_results()
+39 - wrong passed av_rate = 0
+40 - write op: start measurement.
+41 - read op: wait for measurement completion
+42 - measurement timeout
+43 - read op: results for channel 1
+44 - read op: results for channel 2
+45 - read op: results for channel 3
+46 - read op: results for channel 4
+
+* FDC1004_capdac_setup()
+50 - FDC init
+51 - start measuring all capacitors (fast, only for rough range setup)
+	52 - get_results
+	53 - stop measuring all capacitors
+54 - write op: CAPDAC rough values to registers
+55 - start measuring all capacitors (precise, high av_rate)
+	56 - get_results
+	57 - stop measuring all capacitors
+58 - write op: final CAPDAC values to registers
+
+* FDC1004_elimintate_offset()
+60 - capdac setup error
+61 - start measuring all capacitors (precise, high av_rate)
+	62 - get_results
+	63 - stop measuring all capacitor
+61 - perform measurement with best accuracy
+
+* I2C_init()
+100 - twi_master_init() error
+
+* FDC1004_timer_setup()
+101 - nrf_drv_timer_init() error
+
+*/
 
 typedef struct{
-	uint8_t rw_status;
 	uint8_t register_pointer;
 	uint8_t data[2];	// data[0] = MSB, data[1] = LSB
-} FDC1004_t;
+} FDC_data_t;
 
 typedef struct{
 	int32_t ch1;
@@ -109,34 +177,44 @@ typedef struct{
 	int32_t ch3;
 	int32_t ch4;
 	uint8_t measure_status;
-} FDC1004_results_t;
+} FDC_results_t;
 
 typedef struct{
 	int32_t ch1;
 	int32_t ch2;
 	int32_t ch3;
 	int32_t ch4;
-} FDC1004_offset_t;
+} FDC_offsets_t;
 
 /*****************************************************************************
 *	Initialization and read/write functions
 *****************************************************************************/
+uint8_t I2C_init(void);
 uint8_t FDC1004_init(void);
-uint8_t FCD1004_measure(FDC1004_results_t * result_struct, uint8_t sample_rate, uint8_t av_rate);
 
-uint8_t FCD1004_measure_single_cap(FDC1004_results_t * result_struct, uint8_t sample_rate, uint8_t select_cap, uint8_t av_rate);
+uint8_t FCD1004_start_repeated_measurement(uint8_t sample_rate);
+uint8_t FCD1004_stop_repeated_measurement(void);
+uint8_t FCD1004_get_results(FDC_results_t * result_struct, uint8_t av_rate);
+
 uint8_t FDC1004_capdac_setup(void);
 uint8_t FDC1004_elimintate_offset(void);
 
-//FDC1004_t FDC1004_read_register(uint8_t reg);
-uint8_t FDC1004_read_register(FDC1004_t * rw_struct);
-uint8_t FDC1004_write_register(FDC1004_t * rw_struct);
-
+/*****************************************************************************
+*	Timer init and handling functions
+*****************************************************************************/
 uint8_t FDC1004_timer_setup(void);		// change to your custom timer; timer resoulution = 1ms
-void timer0_handler(nrf_timer_event_t event_type, void* p_context);
-void start_timer(void);
-void stop_timer(void);
+void _start_timer(void);
+void _stop_timer(void);
+void _set_timer_int_time(uint32_t time_ms);
 
+/*****************************************************************************
+*	Low level private functions
+*****************************************************************************/
+uint8_t _fdc_read_reg(FDC_data_t * rw_struct);
+uint8_t _fdc_write_reg(FDC_data_t * rw_struct);
+void _timer0_handler(nrf_timer_event_t event_type, void* p_context);
+
+uint8_t _dbg(uint8_t err_code);
 
 #endif
 
