@@ -17,6 +17,7 @@
 #define I_STOP_MEAS 's'
 #define I_GET_RESULTS 'g'
 #define I_RESET 'r'
+#define I_NORDIC_RESET 'e'
 
 // measurement control
 #define START_MEASUREMENT	1
@@ -26,6 +27,4 @@
 #define GET_RESULTS 1
 #define IGNORE_RESULTS	0
 
-#define STATUS_OK 0
-#define STATUS_ERROR 1
 

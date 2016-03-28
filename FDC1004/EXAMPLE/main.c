@@ -15,18 +15,17 @@
 
  
 // USER MUST DEFINE PINS
-#define LED 22
 #define REED_RELAY 25
 #define RX_PIN_NUMBER 17	// UART RX pin number.
 #define TX_PIN_NUMBER 18	// UART TX pin number.
-#define BAUD_RATE			UART_BAUDRATE_BAUDRATE_Baud115200
+#define BAUD_RATE			UART_BAUDRATE_BAUDRATE_Baud38400
 
-FDC_results_t FDC1004_results;
-uint8_t meas_control_bit = STOP_MEASUREMENT;
+static FDC_results_t FDC1004_results;
 uint8_t results_control_bit = IGNORE_RESULTS;
 
 void system_setup(){
-		
+	nrf_gpio_cfg_input(REED_RELAY, NRF_GPIO_PIN_PULLUP);
+	
 	// UART
 	UART_Init(RX_PIN_NUMBER, TX_PIN_NUMBER, BAUD_RATE);
 	printStringLn("-----------------------------------------------");
@@ -45,6 +44,7 @@ void system_setup(){
 	if(FDC1004_init()){
 		printStringLn("FDC init error!");
 	}
+	
 	
 }
 
@@ -70,19 +70,16 @@ int main(void){
 						printStringLn("FDC offset elimination error!");
 					}
 					else printStringLn("FDC offset elimination OK!");
-					results_control_bit = IGNORE_RESULTS;
 					break;
 				
 				case I_START_MEAS: 
 					printStringLn("M!");
 					fdc_status = FCD1004_start_repeated_measurement(SAMPLE_RATE_400);
-					results_control_bit = GET_RESULTS;
 					break;
 				
 				case I_STOP_MEAS: 
 					printStringLn("S!");
 					fdc_status = FCD1004_stop_repeated_measurement();
-					results_control_bit = IGNORE_RESULTS;
 					break;
 				
 				case I_GET_RESULTS:
@@ -90,14 +87,18 @@ int main(void){
 					results_control_bit = GET_RESULTS;
 					break;
 				
-				case I_RESET: 
+				case I_RESET:
 					if(FDC1004_init()){ 
-							printStringLn("FDC init error!");
-						}
-						else printStringLn("FDC init OK!");
-						results_control_bit = IGNORE_RESULTS;
+						printStringLn("FDC init error!");
+					}
+					else printStringLn("FDC init OK!");
+					results_control_bit = IGNORE_RESULTS;
+					
 					break;
-						
+					
+				case I_NORDIC_RESET:
+					NVIC_SystemReset();
+					break;
 				default: break;
 			}			
 		}
@@ -114,6 +115,8 @@ int main(void){
 			//printNumber(FDC1004_results.ch4, DEC);	printString("\t");
 			printNumber(reed_relay_status , DEC);	printString("\t");
 			printNumberLn(fdc_status, DEC);
+			
+			results_control_bit = IGNORE_RESULTS;
 		}
 		
 	}

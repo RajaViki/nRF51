@@ -55,14 +55,10 @@
 #define FDC1004_RANGE		15.0			// 15 pF 
 #define DIVIDE_RESULTS	524288.0	// 2^19
 #define CAPDAC_RESOLUTION	3.125	// pF
-#define CAPDAC_RANGE		32			// 32 * 3.125 = 100pF
+#define CAPDAC_RANGE		31			// 32 * 3.125 = 100pF
 #define OFFSET_BIT_SHIFT	11		// after offset, make bitshift right to eliminate randomines
 
-#define CONF_MEAS1_CH_SETUP	0x1000
-#define CONF_MEAS2_CH_SETUP	0x3000
-#define CONF_MEAS3_CH_SETUP	0x5000
-#define CONF_MEAS4_CH_SETUP	0x7000
-
+#define CAPDAC_REG_BITS_MASK	 0xFC1F	// mask with zeroes at CAPDAC position
 #define FDC1004_ADDRESS_R	0xA1	// read command = 1
 #define FDC1004_ADDRESS_W	0xA0	// write command = 0
 
@@ -94,10 +90,10 @@
 // status
 #define FDC_OK					0			// everything is OK
 
-// timeout values
-#define MEAS_TIMEOUT_100SPS		40	//	[ms] Measurement must complete (DONEX set) in this time
-#define MEAS_TIMEOUT_200SPS		20	//	[ms] Measurement must complete (DONEX set) in this time
-#define MEAS_TIMEOUT_400SPS		10	//	[ms] Measurement must complete (DONEX set) in this time
+// timeout values (note: x4 because of measuring 4 capacitors)
+#define MEAS_TIMEOUT_100SPS		41	//	[ms] Measurement must complete (DONEX set) in this time
+#define MEAS_TIMEOUT_200SPS		21	//	[ms] Measurement must complete (DONEX set) in this time
+#define MEAS_TIMEOUT_400SPS		11	//	[ms] Measurement must complete (DONEX set) in this time
 
 /* ERROR CODE
 0 - OK
@@ -124,11 +120,13 @@
 27 - write op: stop repeated measurement
 
 * FCD1004_start_repeated_measurement()
+29 - _get_measurement_state() internal error
 30 - wrong passed sample rate
 31 - write op: start repeated measurement of all capacitors
 
 * FCD1004_stop_repeated_measurement()
-35 - wrong passed sample rate
+35 - stop measuring all capacitors
+36 - unknown sample rate
 
 * FCD1004_get_results()
 39 - wrong passed av_rate = 0
@@ -141,22 +139,19 @@
 46 - read op: results for channel 4
 
 * FDC1004_capdac_setup()
-50 - FDC init
-51 - start measuring all capacitors (fast, only for rough range setup)
-	52 - get_results
-	53 - stop measuring all capacitors
-54 - write op: CAPDAC rough values to registers
-55 - start measuring all capacitors (precise, high av_rate)
-	56 - get_results
-	57 - stop measuring all capacitors
-58 - write op: final CAPDAC values to registers
+50 - start measuring all capacitors (fast, only for rough range setup)
+	51 - get_results
+	52 - stop measuring all capacitors
+53 - wrong capdac value returned
+	54 - setup new capdac value
+
 
 * FDC1004_elimintate_offset()
-60 - capdac setup error
-61 - start measuring all capacitors (precise, high av_rate)
-	62 - get_results
-	63 - stop measuring all capacitor
-61 - perform measurement with best accuracy
+60 - init error
+61 - capdac setup error
+62 - start measuring all capacitors (precise, high av_rate)
+	63 - get_results
+	64 - stop measuring all capacitor
 
 * I2C_init()
 100 - twi_master_init() error
@@ -164,6 +159,16 @@
 * FDC1004_timer_setup()
 101 - nrf_drv_timer_init() error
 
+* _get_capdac()
+110 - read op: get chosen capdac register
+
+* _set_capdac()
+120 - wrong passed argument: capdac value too large
+121 - read op: current register setings
+122 - write op: back to register
+
+* _get_measurement_state()
+131 - read op: get conf register
 */
 
 typedef struct{
@@ -196,8 +201,9 @@ uint8_t FCD1004_start_repeated_measurement(uint8_t sample_rate);
 uint8_t FCD1004_stop_repeated_measurement(void);
 uint8_t FCD1004_get_results(FDC_results_t * result_struct, uint8_t av_rate);
 
-uint8_t FDC1004_capdac_setup(void);
 uint8_t FDC1004_elimintate_offset(void);
+uint8_t FDC1004_capdac_setup(void);
+
 
 /*****************************************************************************
 *	Timer init and handling functions
@@ -214,7 +220,11 @@ uint8_t _fdc_read_reg(FDC_data_t * rw_struct);
 uint8_t _fdc_write_reg(FDC_data_t * rw_struct);
 void _timer0_handler(nrf_timer_event_t event_type, void* p_context);
 
+uint8_t _get_measurement_state(void);
+uint8_t _set_capdac(uint8_t reg, uint8_t capdac_value);
+uint8_t _get_capdac(uint8_t reg);
+uint8_t _get_sample_rate(void);
+
 uint8_t _dbg(uint8_t err_code);
 
 #endif
-

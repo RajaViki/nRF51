@@ -14,9 +14,9 @@
 * I2C communication interface
 *****************************************************************************/
 
-FDC_offsets_t FDC1004_offset;
+static FDC_offsets_t FDC1004_offset;
 
-uint8_t timeout_interrupt = 0;
+volatile uint8_t timeout_interrupt = 0;
 const nrf_drv_timer_t timer0 = NRF_DRV_TIMER_INSTANCE(0);	// TIMER 0 in use
 
 // TWI/I2C bus init
@@ -31,7 +31,7 @@ uint8_t I2C_init(void){
 uint8_t FDC1004_init(void){
 	FDC_data_t rw_struct;
 	memset(&FDC1004_offset, 0, sizeof(FDC1004_offset));
-		
+			
 	// software RESET
 	rw_struct.register_pointer = FDC_CONF;	
 	rw_struct.data[0] = 0x84; // software reset, 100SPS
@@ -41,26 +41,24 @@ uint8_t FDC1004_init(void){
 	
 	// SETUP cap pins and initial state
 	rw_struct.register_pointer = CONF_MEAS1;
-	rw_struct.data[0] = 0x1C;
+	rw_struct.data[0] = 0x10;
 	rw_struct.data[1] = 0x00;
 	if(_fdc_write_reg(&rw_struct)) return _dbg(11);
 		
 	rw_struct.register_pointer = CONF_MEAS2;
-	rw_struct.data[0] = 0x3C;
+	rw_struct.data[0] = 0x30;
 	rw_struct.data[1] = 0x00;
 	if(_fdc_write_reg(&rw_struct)) return _dbg(12);
 		
 	rw_struct.register_pointer = CONF_MEAS3;
-	rw_struct.data[0] = 0x5C;
+	rw_struct.data[0] = 0x50;
 	rw_struct.data[1] = 0x00;
 	if(_fdc_write_reg(&rw_struct)) return _dbg(13);
 	
 	rw_struct.register_pointer = CONF_MEAS4;
-	rw_struct.data[0] = 0x7C;
+	rw_struct.data[0] = 0x70;
 	rw_struct.data[1] = 0x00;
 	if(_fdc_write_reg(&rw_struct)) return _dbg(14);
-		
-	//nrf_delay_ms(10);	
 
 	/*
 	rw_struct.register_pointer = MANUFACTURER_ID;
@@ -82,30 +80,37 @@ uint8_t FDC1004_init(void){
 // Measurement functions
 uint8_t FCD1004_start_repeated_measurement(uint8_t sample_rate){
 	FDC_data_t rw_struct;
-	uint32_t delay_time = 0;
-	
-	// START repeated measurement
-	rw_struct.register_pointer = FDC_CONF;
-	switch (sample_rate){
-		case SAMPLE_RATE_100: 
-			rw_struct.data[0] = 0x05;
-			delay_time = MEAS_TIMEOUT_100SPS;
-			break;
-		case SAMPLE_RATE_200: 
-			rw_struct.data[0] = 0x09; 
-			delay_time = MEAS_TIMEOUT_200SPS;
-			break;
-		case SAMPLE_RATE_400: 
-			rw_struct.data[0] = 0x0D;
-			delay_time = MEAS_TIMEOUT_400SPS;
-			break;
-		default: 
-			return _dbg(30);
+	uint32_t timeout_ms = 0;
+	uint8_t meas_state = _get_measurement_state();
+
+	if(meas_state){	
+		// measurement already started or error in _get_measurement_state();
+		if(meas_state > 100) return _dbg(29); // _dbg(131) returned if internal error	
 	}
-	rw_struct.data[1] = 0xF0;	// data[0] = MSB, data[1] = LSB
-	if(_fdc_write_reg(&rw_struct)) return _dbg(31);	// start measuring all capacitors
-	
-	_set_timer_int_time(delay_time);	//	set timeout value
+	else{
+		// START repeated measurement
+		rw_struct.register_pointer = FDC_CONF;
+		switch (sample_rate){
+			case SAMPLE_RATE_100: 
+				rw_struct.data[0] = 0x05;
+				timeout_ms = MEAS_TIMEOUT_100SPS;
+				break;
+			case SAMPLE_RATE_200: 
+				rw_struct.data[0] = 0x09; 
+				timeout_ms = MEAS_TIMEOUT_200SPS;
+				break;
+			case SAMPLE_RATE_400: 
+				rw_struct.data[0] = 0x0D;
+				timeout_ms = MEAS_TIMEOUT_400SPS;
+				break;
+			default: 
+				return _dbg(30);
+		}
+		// measure all capacitors
+		rw_struct.data[1] = 0xF0;	// data[0] = MSB, data[1] = LSB
+		_set_timer_int_time(timeout_ms);	//	set timeout value
+		if(_fdc_write_reg(&rw_struct)) return _dbg(31);	// start measuring all capacitors
+	}
 	
 	return FDC_OK;
 }
@@ -113,11 +118,21 @@ uint8_t FCD1004_start_repeated_measurement(uint8_t sample_rate){
 uint8_t FCD1004_stop_repeated_measurement(void){
 	FDC_data_t rw_struct;
 	
+	uint8_t sample_rate = _get_sample_rate();
+	
 	// STOP repeated measurement
 	rw_struct.register_pointer = FDC_CONF;
 	rw_struct.data[0] = 0x04; // data[0] = MSB 
 	rw_struct.data[1] = 0x00;	// data[1] = LSB
 	if(_fdc_write_reg(&rw_struct)) return _dbg(35);	// stop measuring all capacitors
+
+	// avoid starting new measurement too soon
+	switch(sample_rate){
+		case SAMPLE_RATE_100: nrf_delay_ms(MEAS_TIMEOUT_100SPS); break;
+		case SAMPLE_RATE_200: nrf_delay_ms(MEAS_TIMEOUT_200SPS); break;
+		case SAMPLE_RATE_400: nrf_delay_ms(MEAS_TIMEOUT_400SPS); break;
+		default: _dbg(36); break;
+	}
 	
 	return FDC_OK;
 }
@@ -129,7 +144,7 @@ uint8_t FCD1004_get_results(FDC_results_t * result_struct, uint8_t av_rate){
 	memset(result_struct, 0, sizeof(FDC_results_t));
 		
 	if( av_rate == 0){	
-		return _dbg(39);	// wrong passed argumen; av_rate must be > 0
+		return _dbg(39);	// wrong passed argument; av_rate must be > 0
 	}
 	
 	for(i=0; i<av_rate; i++){
@@ -190,7 +205,6 @@ uint8_t FCD1004_get_results(FDC_results_t * result_struct, uint8_t av_rate){
 		temp_res |= rw_struct.data[0];
 		result_struct->ch4 += temp_res;
 		temp_res = 0;
-
 	}
 	
 	if(av_rate > 0){
@@ -220,20 +234,17 @@ uint8_t FCD1004_get_results(FDC_results_t * result_struct, uint8_t av_rate){
 // CAPDAC and offset elimination functions
 uint8_t FDC1004_capdac_setup(void){
 	FDC_results_t results;
-	FDC_data_t rw_struct;
-	int32_t *results_array[] = {&results.ch1, &results.ch2, &results.ch3, &results.ch4};
-	uint8_t conf_measx_register_pointer[] = {CONF_MEAS1, CONF_MEAS2, CONF_MEAS3, CONF_MEAS4};
-	uint16_t ch_setup_register_pointer[] = {CONF_MEAS1_CH_SETUP, CONF_MEAS2_CH_SETUP, CONF_MEAS3_CH_SETUP, CONF_MEAS4_CH_SETUP};
-	
-	float results_f = 0;
-	uint32_t results_i = 0;
 	float results_f_array[] = {0,0,0,0};
 	float mid_point_result_f = ((FDC1004_RANGE * (float)PULL_VS_PUSH_FORCE))/10.0;	// point where push and pull forces corespond to PULL_VS_PUSH_FORCE ratio
-	float diff_f = 0;
+	
+	float diff_f_array[] = {0,0,0,0};
 	uint16_t capdac_array[] = {0,0,0,0};
-	uint16_t combined_register = 0;
+	uint8_t capdac_temp = 0;
+	uint8_t conf_measx_reg_array[] = {CONF_MEAS1, CONF_MEAS2, CONF_MEAS3, CONF_MEAS4};
+	
 	uint8_t i = 0;
-
+	uint8_t capdac_setup_status = 0;
+	
 	#ifdef PRINT_INFO
 		printStringLn("CAPDAC setup:");
 		
@@ -247,68 +258,47 @@ uint8_t FDC1004_capdac_setup(void){
 		printFloatLn(mid_point_result_f);
 	#endif
 	
-	if(FDC1004_init()) return _dbg(50);
-	
-	// CAPDAC OFFSET ELIMINATION
-	do{
-			// MEASURE all capacitors  - measure fast, only for rough range setup
-				//if(FCD1004_measure(&results, SAMPLE_RATE_400, AV_RATE_N)) return _dbg(51);
-				//nrf_delay_ms(8);	// ? ? ? ? ? ? 
+	for(i=0; i < 4; i++){	// do that for all capacitors
+		capdac_setup_status = 0;
 		
-		if(FCD1004_start_repeated_measurement(SAMPLE_RATE_400)) return _dbg(51);
-		if(FCD1004_get_results(&results, 1)) return _dbg(52);	// av_rate = 1
-		if(FCD1004_stop_repeated_measurement()) return _dbg(53);
-		nrf_delay_ms(40);	
-		
-		for(i=0; i<4; i++){
-			results_f = (float) *results_array[i];
-			results_f = results_f / DIVIDE_RESULTS;		// in pF, integer+decimal number. ?/ CAPDAc resolution
-			results_f_array[i] = results_f;
-			results_i = (uint32_t) results_f; 
+		do{
+			// make rough measurement for capdac
+			if(FCD1004_start_repeated_measurement(SAMPLE_RATE_400)) return _dbg(50);
+			if(FCD1004_get_results(&results, 1)) return _dbg(51);	// av_rate = AV_RATE_H
+			if(FCD1004_stop_repeated_measurement()) return _dbg(52);
+						
+			results_f_array[0] = ((float)results.ch1) / DIVIDE_RESULTS;
+			results_f_array[1] = ((float)results.ch2) / DIVIDE_RESULTS;
+			results_f_array[2] = ((float)results.ch3) / DIVIDE_RESULTS;
+			results_f_array[3] = ((float)results.ch4) / DIVIDE_RESULTS;
 			
-			if(results_i >= FDC1004_RANGE)	
-			{
-				capdac_array[i] += (uint16_t)((FDC1004_RANGE - mid_point_result_f) / CAPDAC_RESOLUTION);
-			}
-			
-			// write CAPDAC value to register
-			combined_register = ch_setup_register_pointer[i] | (capdac_array[i] << 5);
-			rw_struct.register_pointer = conf_measx_register_pointer[i];
-			rw_struct.data[0] = combined_register >> 8;
-			rw_struct.data[1] = combined_register & 0x00FF;
-			if(_fdc_write_reg(&rw_struct)) return _dbg(54);
-		}
-	}while(!((results_f_array[0] < FDC1004_RANGE) && (results_f_array[1] < FDC1004_RANGE) && (results_f_array[2] < FDC1004_RANGE) && (results_f_array[3] < FDC1004_RANGE)));
-	
-	// measure accurate, for fine capdac setup
-		//if(FCD1004_measure(&results, SAMPLE_RATE_100, AV_RATE_H)) return _dbg(53);
-	if(FCD1004_start_repeated_measurement(SAMPLE_RATE_100)) return _dbg(55);
-	if(FCD1004_get_results(&results, AV_RATE_H)) return _dbg(56);	// av_rate = AV_RATE_H
-	if(FCD1004_stop_repeated_measurement()) return _dbg(57);
-	
-	for(i=0; i<4; i++){
-		results_f = (float) *results_array[i];
-		results_f = results_f / DIVIDE_RESULTS;		// in pF, integer+decimal number. ?/ CAPDAc resolution
-		results_f_array[i] = results_f;
-		
-		if(results_f_array[i] > (mid_point_result_f + CAPDAC_RESOLUTION)){
-			diff_f = (results_f_array[i] - mid_point_result_f) / CAPDAC_RESOLUTION;
-			if((diff_f - (uint16_t)diff_f) > 0.5){
-				capdac_array[i] += ((uint16_t)diff_f) + 1;
+			if(results_f_array[i] <= mid_point_result_f){	
+				capdac_setup_status = 1;	// result to small, capdac can't be used; end of capdac routine for this capacitor
 			}
 			else{
-				capdac_array[i] += ((uint16_t)diff_f);
-			}			
-		}
+				// determine difference between midpoint and measured value
+				diff_f_array[i] = results_f_array[i] - mid_point_result_f;
+				if(diff_f_array[i] < 0) diff_f_array[i] = -diff_f_array[i];	// abs(float)
+			
+				if(diff_f_array[i] > CAPDAC_RESOLUTION){
+					capdac_temp = _get_capdac(conf_measx_reg_array[i]);	// get current capdac value
+					if(capdac_temp > CAPDAC_RANGE){
+						return _dbg(53);
+					}
+					else{
+						capdac_array[i] = capdac_temp;
+						capdac_array[i] += (uint16_t)(diff_f_array[i] / CAPDAC_RESOLUTION);	// add new calculated value
+					
+						if(_set_capdac(conf_measx_reg_array[i], capdac_array[i])) return _dbg(54);	// setup new capdac value
+					}
+				}
+				else{
+					capdac_setup_status = 1;
+				}
+			}
+		}while(!capdac_setup_status);
+	}	
 		
-		// write CAPDAC value to register
-		combined_register = ch_setup_register_pointer[i] | (capdac_array[i] << 5);
-		rw_struct.register_pointer = conf_measx_register_pointer[i];
-		rw_struct.data[0] = combined_register >> 8;
-		rw_struct.data[1] = combined_register & 0x00FF;
-		if(_fdc_write_reg(&rw_struct)) return _dbg(58);
-	}
-	
 	#ifdef PRINT_INFO
 		printStringLn("\tCAPDAC setup OK.");
 	#endif
@@ -319,14 +309,15 @@ uint8_t FDC1004_capdac_setup(void){
 uint8_t FDC1004_elimintate_offset(void){
 	FDC_results_t results;
 	
-	if(FDC1004_capdac_setup()) return _dbg(60);
+	if(FDC1004_init()) return _dbg(60);
+	
+	if(FDC1004_capdac_setup()) return _dbg(61);
 	memset(&results, 0, sizeof(FDC_results_t));
 	
 	// perform measurement with best accuracy
-		//if(FCD1004_measure(&results, SAMPLE_RATE_100, AV_RATE_H)) return _dbg(61);
-	if(FCD1004_start_repeated_measurement(SAMPLE_RATE_100)) return _dbg(61);
-	if(FCD1004_get_results(&results, AV_RATE_H)) return _dbg(62);	// av_rate = AV_RATE_H
-	if(FCD1004_stop_repeated_measurement()) return _dbg(63);
+	if(FCD1004_start_repeated_measurement(SAMPLE_RATE_100)) return _dbg(62);
+	if(FCD1004_get_results(&results, AV_RATE_H)) return _dbg(63);	// av_rate = AV_RATE_H
+	if(FCD1004_stop_repeated_measurement()) return _dbg(64);
 	
 	FDC1004_offset.ch1 = results.ch1;
 	FDC1004_offset.ch2 = results.ch2;
@@ -420,6 +411,78 @@ void _timer0_handler(nrf_timer_event_t event_type, void* p_context){
 	}
 }
 
+uint8_t _get_measurement_state(void){
+	FDC_data_t rw_struct;
+	uint8_t meas_state = 0;
+	
+	rw_struct.register_pointer = FDC_CONF;
+	if(_fdc_read_reg(&rw_struct)) return _dbg(131);
+	
+	meas_state = rw_struct.data[1] >> 4;
+	meas_state = meas_state & 0x0F;
+	return meas_state;
+}
+
+uint8_t _set_capdac(uint8_t reg, uint8_t capdac_value){
+	FDC_data_t rw_struct;
+	uint16_t combined_reg = 0;
+	
+	if(capdac_value > CAPDAC_RANGE) return _dbg(120);
+	
+	// read current register setings
+	rw_struct.register_pointer = reg;
+	if(_fdc_read_reg(&rw_struct)) return _dbg(121);
+		
+	combined_reg = rw_struct.data[0] << 8;	//combine result
+	combined_reg |= rw_struct.data[1] & 0x00FF;
+	
+	combined_reg &= CAPDAC_REG_BITS_MASK;	// clear capdac bits
+	combined_reg |= (capdac_value << 5);	// add new capdac value
+	
+	// write back to register
+	rw_struct.data[0] = (combined_reg >> 8) & 0x00FF;
+	rw_struct.data[1] = combined_reg & 0x00FF;
+	
+	if(_fdc_write_reg(&rw_struct)) return _dbg(122);	
+	
+	return FDC_OK;
+}
+
+uint8_t _get_capdac(uint8_t reg){
+	FDC_data_t rw_struct;
+	uint16_t combined_reg = 0;
+	uint8_t capdac_value = 0;
+
+	rw_struct.register_pointer = reg;
+	if(_fdc_read_reg(&rw_struct)) return _dbg(110);
+	
+	combined_reg = (rw_struct.data[0] << 8);
+	combined_reg |= rw_struct.data[1];
+	capdac_value = (combined_reg >> 5) & 0x1F;
+
+	return capdac_value;
+}
+
+uint8_t _get_sample_rate(void){
+	FDC_data_t rw_struct;
+	uint8_t sample_rate = 0;
+	
+	rw_struct.register_pointer = FDC_CONF;
+	if(_fdc_read_reg(&rw_struct)) return _dbg(54);
+	
+	sample_rate = rw_struct.data[0] & 0x0C;
+	sample_rate = (sample_rate >> 2);
+	
+	switch(sample_rate){
+		case 1: sample_rate = SAMPLE_RATE_100; break;
+		case 2: sample_rate = SAMPLE_RATE_200; break;
+		case 3: sample_rate = SAMPLE_RATE_400; break;
+		default:  _dbg(125); break;
+	}
+	
+	return sample_rate;
+}
+
 uint8_t _dbg(uint8_t err_code){
 	#ifdef DEBUG_PRINT
 		printString("!");
@@ -429,12 +492,10 @@ uint8_t _dbg(uint8_t err_code){
 	return err_code;
 }
 
-
 /* Note: about raw results
 "The measurement data is already encoded in Two's complement format. 
 So if your data is data[23:0] = 0x04864F (two's complement), that would equate to 296527 in decimal. 
 Then you would divide by 219.
 two's complement (296527/(219)) -> 0.56558pF"
 */
-
 
